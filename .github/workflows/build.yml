@@ -1,38 +1,36 @@
 name: Build
+
 on:
   push:
     branches:
       - main
   pull_request:
     types: [opened, synchronize, reopened]
+
 jobs:
   build:
     name: Build
     runs-on: macos-latest
-    env:
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Install sonar-scanner and build-wrapper
-        uses: SonarSource/sonarcloud-github-c-cpp@v1
-      - name: Run build-wrapper
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Download and install the build wrapper
         run: |
-          build-wrapper-macosx-x86 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} xcodebuild -project macos-xcode.xcodeproj -scheme macos-xcode
-      - name: Run tests to generate coverage statistics
-        run: |
-          xcodebuild test -project macos-xcode.xcodeproj -scheme test1 -enableCodeCoverage YES -derivedDataPath build
-          xcodebuild test -project macos-xcode.xcodeproj -scheme test2 -enableCodeCoverage YES -derivedDataPath build
-      - name: Collect coverage into one XML report
-        run: |
-          bash xccov-to-generic.sh build/Logs/Test/*.xcresult/ > generic-coverage.xml
-      - name: Run sonar-scanner
+          mkdir $HOME/.sonar
+          curl -sSLo $HOME/.sonar/build-wrapper-macosx-x86.zip ${{ secrets.SONAR_HOST_URL }}/static/cpp/build-wrapper-macosx-x86.zip
+          unzip -o $HOME/.sonar/build-wrapper-macosx-x86.zip -d $HOME/.sonar/
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }} # Put the name of your token here
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      - name: Download and install the SonarScanner
         run: |
-          sonar-scanner \
-            --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}" \
-            --define sonar.coverageReportPaths=generic-coverage.xml
-            
+          curl -sSLo $HOME/.sonar/sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856.zip
+          unzip -o $HOME/.sonar/sonar-scanner.zip -d $HOME/.sonar/
+      - name: Build and analyse the project
+        run: |
+          # Potential improvement : add these paths to the PATH env var.
+          $HOME/.sonar/build-wrapper-macosx-x86/build-wrapper-macosx-x86 --out-dir bw-output xcodebuild -project macos-xcode.xcodeproj -scheme macos-xcode
+          $HOME/.sonar/sonar-scanner-4.8.0.2856-macosx/bin/sonar-scanner -Dsonar.cfamily.build-wrapper-output=bw-output
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
